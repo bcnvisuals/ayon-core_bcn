@@ -1262,6 +1262,10 @@ class ExtractReview(pyblish.api.InstancePlugin):
         """
         filters = []
 
+        if "source_resolution" in output_def['tags']:
+            self.log.debug("Source resolution tag present, skipping rescaling filters")
+            return filters
+
         # if reformat input video file is already reforamted from upstream
         reformat_in_baking = (
             "reformatted" in new_repre["tags"]
