@@ -39,6 +39,10 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         ),
         qargparse.Boolean(
             "remove_publish_folder", help="Remove publish folder:"
+        ),
+        qargparse.Boolean(
+            "select_version_ids", default=False,
+            help="Select specific versions to delete (overrides 'versions to keep')."
         )
     ]
 
@@ -231,11 +235,70 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         messagebox.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         return messagebox.exec_() == QtWidgets.QMessageBox.Yes
 
+    def _prompt_version_selection(self, versions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Pop up a dialog with a list of versions for the user to select.
+
+        :param versions: A list of version dictionaries.
+        :return: A list of the chosen version dictionaries.
+        """
+        dialog = QtWidgets.QDialog()
+        dialog.setWindowTitle("Select Versions to Delete")
+        dialog.setWindowFlags(dialog.windowFlags() | QtCore.Qt.FramelessWindowHint)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        info_label = QtWidgets.QLabel("Select the versions you want to delete below:")
+        layout.addWidget(info_label)
+
+        # A QListWidget with check boxes for each version
+        list_widget = QtWidgets.QListWidget(dialog)
+        list_widget.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        layout.addWidget(list_widget)
+
+        for version in versions:
+            item_text = f"Version {version['version']} (ID: {version['id']})"
+            item = QtWidgets.QListWidgetItem(item_text, list_widget)
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.Unchecked)
+
+        # Button box
+        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        layout.addWidget(button_box)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+
+        dialog.setLayout(layout)
+        
+        chosen_versions = []
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            # Collect all checked items
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                if item.checkState() == QtCore.Qt.Checked:
+                    # Parse out the version info
+                    # e.g. "Version X (ID: 12345)" -> you can map it back
+                    # Since we placed them in the same order, just index
+                    chosen_versions.append(versions[i])
+
+        return chosen_versions
+
     def get_data(self, context, versions_count):
+        """
+        Gather data for deletion. If 'select_version_ids' option is on,
+        we show a version selection dialog; otherwise, we fall back
+        to existing logic (delete all except some number of latest).
+        """
         product_entity = context["product"]
         folder_entity = context["folder"]
         project_name = context["project"]["name"]
         anatomy = Anatomy(project_name, project_entity=context["project"])
+
+        # Fetch the 'select_version_ids' setting from context's options if present
+        # This is how we read an extra option without breaking existing calls:
+        select_version_ids = False
+        if context.get("options"):
+            select_version_ids = context["options"].get("select_version_ids", False)
 
         version_fields = ayon_api.get_default_fields_for_type("version")
         version_fields.add("tags")
@@ -249,57 +312,51 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         self.log.debug(
             "Version Number ({})".format(len(versions))
         )
-        versions_by_parent = collections.defaultdict(list)
-        for ent in versions:
-            versions_by_parent[ent["productId"]].append(ent)
 
-        def sort_func(ent):
-            return int(ent["version"])
+        # If user opted to select which versions to delete,
+        # we open a small UI and let them pick. Otherwise, do the older logic
+        if select_version_ids:
+            self.log.debug("User chose to manually select versions to delete.")
+            # Present dialog for manual selection
+            chosen_versions = self._prompt_version_selection(versions)
+            # Filter out chosen versions from the full list. We'll only delete these.
+            versions_to_delete = [v for v in versions if v in chosen_versions]
+        else:
+            # Original logic: keep `versions_count` newest versions, delete the rest
+            versions_by_parent = collections.defaultdict(list)
+            for ent in versions:
+                versions_by_parent[ent["productId"]].append(ent)
 
-        all_last_versions = []
-        for _parent_id, _versions in versions_by_parent.items():
-            for idx, version in enumerate(
-                sorted(_versions, key=sort_func, reverse=True)
-            ):
-                if idx >= versions_count:
-                    break
-                all_last_versions.append(version)
+            def sort_func(ent):
+                return int(ent["version"])
 
-        self.log.debug("Collected versions ({})".format(len(versions)))
+            all_last_versions = []
+            for _parent_id, _versions in versions_by_parent.items():
+                for idx, version in enumerate(
+                    sorted(_versions, key=sort_func, reverse=True)
+                ):
+                    if idx >= versions_count:
+                        break
+                    all_last_versions.append(version)
 
-        # Filter latest versions
-        for version in all_last_versions:
-            versions.remove(version)
+                # Filter out the "latest" versions from the overall list
+                for version in all_last_versions:
+                    versions.remove(version)
 
-        # Update versions_by_parent without filtered versions
-        versions_by_parent = collections.defaultdict(list)
-        for ent in versions:
-            versions_by_parent[ent["productId"]].append(ent)
+                # Filter out already deleted versions
+                versions_to_delete = []
+                for version in versions:
+                    if "deleted" in version["tags"]:
+                        self.log.debug(
+                            "Skipping version. Already tagged as inactive. < {} / {} / {} >".format(
+                                folder_entity["path"], product_entity["name"], version["version"]
+                            )
+                        )
+                    else:
+                        versions_to_delete.append(version)
 
-        # Filter already deleted versions
-        versions_to_pop = []
-        for version in versions:
-            if "deleted" in version["tags"]:
-                versions_to_pop.append(version)
-
-        for version in versions_to_pop:
-            msg = "Folder: \"{}\" | Product: \"{}\" | Version: \"{}\"".format(
-                folder_entity["path"],
-                product_entity["name"],
-                version["version"]
-            )
-            self.log.debug((
-                "Skipping version. Already tagged as inactive. < {} >"
-            ).format(msg))
-            versions.remove(version)
-
-        version_ids = [ent["id"] for ent in versions]
-
-        self.log.debug(
-            "Filtered versions to delete ({})".format(len(version_ids))
-        )
-
-        if not version_ids:
+        # If nothing to delete, return
+        if not versions_to_delete:
             msg = "Skipping processing. Nothing to delete on {}/{}".format(
                 folder_entity["path"], product_entity["name"]
             )
@@ -307,10 +364,14 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
             print(msg)
             return
 
+        # Collect their representations
+        version_ids = [v["id"] for v in versions_to_delete]
+        self.log.debug(
+            "Filtered versions to delete ({})".format(len(version_ids))
+        )
         repres = list(ayon_api.get_representations(
             project_name, version_ids=version_ids
         ))
-
         self.log.debug(
             "Collected representations to remove ({})".format(len(repres))
         )
@@ -323,7 +384,7 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
             )
             if file_path is None:
                 self.log.debug((
-                    "Could not format path for represenation \"{}\""
+                    "Could not format path for representation \"{}\""
                 ).format(str(repre)))
                 continue
 
@@ -344,14 +405,11 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         for dir_id, dir_path in dir_paths.items():
             if os.path.exists(dir_path):
                 continue
-
             dir_ids_to_pop.append(dir_id)
 
-        # Pop dirs from both dictionaries
         for dir_id in dir_ids_to_pop:
             dir_paths.pop(dir_id)
             paths = file_paths_by_dir.pop(dir_id)
-            # TODO report of missing directories?
             paths_msg = ", ".join([
                 "'{}'".format(path[0].replace("\\", "/")) for path in paths
             ])
@@ -362,7 +420,7 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         return {
             "dir_paths": dir_paths,
             "file_paths_by_dir": file_paths_by_dir,
-            "versions": versions,
+            "versions": versions_to_delete,
             "folder": folder_entity,
             "product": product_entity,
             "archive_product": versions_count == 0
@@ -404,10 +462,10 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         return size
 
     def load(self, contexts, name=None, namespace=None, options=None):
-
         # Get user options
         versions_to_keep = 2
         remove_publish_folder = False
+        select_version_ids = False
         if options:
             versions_to_keep = options.get(
                 "versions_to_keep", versions_to_keep
@@ -415,11 +473,14 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
             remove_publish_folder = options.get(
                 "remove_publish_folder", remove_publish_folder
             )
+            select_version_ids = options.get(
+                "select_version_ids", select_version_ids
+            )
 
-        # Because we do not want this run by accident we will add an extra
-        # user confirmation
+        # Only show the standard confirmation if we're not doing version selection
         if (
                 self.requires_confirmation
+                and not select_version_ids
                 and not self._confirm_delete(contexts, versions_to_keep)
         ):
             return
@@ -427,6 +488,12 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         try:
             size = 0
             for count, context in enumerate(contexts):
+                # Add options to context so get_data can access them
+                context["options"] = {
+                    "versions_to_keep": versions_to_keep,
+                    "remove_publish_folder": remove_publish_folder,
+                    "select_version_ids": select_version_ids
+                }
                 data = self.get_data(context, versions_to_keep)
                 if not data:
                     continue
