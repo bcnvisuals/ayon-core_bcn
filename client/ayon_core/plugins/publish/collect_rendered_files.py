@@ -92,7 +92,7 @@ class CollectRenderedFiles(pyblish.api.ContextPlugin):
             os.environ["FTRACK_SERVER"] = ftrack["FTRACK_SERVER"]
 
         # now we can just add instances from json file and we are done
-        any_staging_dir_persistent = False
+        any_staging_dir_persistent = True
         for instance_data in data.get("instances"):
 
             self.log.debug("  - processing instance for {}".format(
@@ -107,7 +107,7 @@ class CollectRenderedFiles(pyblish.api.ContextPlugin):
             # stash render job id for later validation
             instance.data["render_job_id"] = data.get("job").get("_id")
             staging_dir_persistent = instance.data.get(
-                "stagingDir_persistent", False
+                "stagingDir_persistent", True
             )
             if staging_dir_persistent:
                 any_staging_dir_persistent = True
