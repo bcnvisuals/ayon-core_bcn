@@ -17,7 +17,7 @@ class LauncherWindow(QtWidgets.QWidget):
     page_side_anim_interval = 250
 
     def __init__(self, controller=None, parent=None):
-        super(LauncherWindow, self).__init__(parent)
+        super().__init__(parent)
 
         if controller is None:
             controller = BaseLauncherController()
@@ -153,14 +153,14 @@ class LauncherWindow(QtWidgets.QWidget):
         self.resize(520, 740)
 
     def showEvent(self, event):
-        super(LauncherWindow, self).showEvent(event)
+        super().showEvent(event)
         self._window_is_active = True
         if not self._actions_refresh_timer.isActive():
             self._actions_refresh_timer.start()
         self._controller.refresh()
 
     def closeEvent(self, event):
-        super(LauncherWindow, self).closeEvent(event)
+        super().closeEvent(event)
         self._window_is_active = False
         self._actions_refresh_timer.stop()
 
@@ -176,7 +176,7 @@ class LauncherWindow(QtWidgets.QWidget):
                 self._on_actions_refresh_timeout()
                 self._actions_refresh_timer.start()
 
-        super(LauncherWindow, self).changeEvent(event)
+        super().changeEvent(event)
 
     def _on_actions_refresh_timeout(self):
         # Stop timer if widget is not visible
@@ -202,8 +202,9 @@ class LauncherWindow(QtWidgets.QWidget):
             self._go_to_hierarchy_page(project_name)
 
     def _on_projects_refresh(self):
-        # There is nothing to do, we're on projects page
+        # Refresh only actions on projects page
         if self._is_on_projects_page:
+            self._actions_widget.refresh()
             return
 
         # No projects were found -> go back to projects page
