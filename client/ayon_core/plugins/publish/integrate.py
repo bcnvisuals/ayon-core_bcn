@@ -2,7 +2,6 @@ import os
 import logging
 import sys
 import copy
-import re
 
 import clique
 import pyblish.api
@@ -598,8 +597,6 @@ class IntegrateAsset(pyblish.api.InstancePlugin):
         }.items():
             # Allow to take value from representation
             # if not found also consider instance.data
-            anatomy_key = self.instance_data_keys[key]
-
             value = repre.get(key)
             if value is None:
                 value = instance.data.get(key)
@@ -611,32 +608,9 @@ class IntegrateAsset(pyblish.api.InstancePlugin):
         anatomy = instance.context.data["anatomy"]
         publish_template = anatomy.get_template_item("publish", template_name)
         path_template_obj = publish_template["path"]
-        template = path_template_obj.template.replace("\\\\", "/")
+        template = path_template_obj.template.replace("\\", "/")
 
         is_udim = bool(repre.get("udim"))
-
-        # --- Start: Parse colorspace tag for Substance Painter textures ---
-        filename_colorspace_tag = None
-        # Check if it's a textureSet instance
-        is_texture_set = (
-            instance.data.get("productType") == "textureSet" or
-            "textureSet" in instance.data.get("families", [])
-        )
-        if is_texture_set and files:
-            # Get the first filename to parse
-            first_file = files[0] if isinstance(files, (list, tuple)) else files
-            # Simple parsing logic: assumes colorspace tag is between output name and frame/UDIM
-            # Example: Coin_Base_color_ACES - ACEScg_1001.png -> extracts "ACES - ACEScg"
-            # This regex might need adjustment based on exact naming patterns
-            match = re.search(r"(?:_([a-zA-Z0-9\s-]+?))_(?:\d{4}|\d+)$", first_file)
-            if match:
-                filename_colorspace_tag = match.group(1).strip()
-                self.log.debug(f"Parsed colorspace tag: {filename_colorspace_tag}")
-                # Add to template data if found
-                template_data["filename_colorspace_tag"] = filename_colorspace_tag
-            else:
-                 self.log.debug(f"Could not parse colorspace tag from: {first_file}")
-        # --- End: Parse colorspace tag ---
 
         # handle publish in place
         if "{originalDirname}" in template:
