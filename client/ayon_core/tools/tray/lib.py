@@ -166,8 +166,30 @@ def _is_process_running(pid: int) -> bool:
 
 
 def _kill_tray_process(pid: int):
-    if _is_process_running(pid):
-        os.kill(pid, signal.SIGTERM)
+    """Attempt to gracefully terminate a tray process.
+
+    Protect against killing processes we don't own (PermissionError) and
+    against races where the PID no longer exists.
+
+    Args:
+        pid (int): Process id to terminate.
+    """
+    try:
+        if _is_process_running(pid):
+            os.kill(pid, signal.SIGTERM)
+    except PermissionError:
+        # Cannot signal a process owned by another user; skip without crashing
+        Logger.get_logger("Tray").warning(
+            "Insufficient permissions to terminate PID %s; skipping.", pid
+        )
+    except ProcessLookupError:
+        # Process gone between check and kill
+        pass
+    except Exception:
+        # Log unexpected issues but don't crash the launcher
+        Logger.get_logger("Tray").warning(
+            "Failed to terminate PID %s.", pid, exc_info=True
+        )
 
 
 def _create_tray_hash(server_url: str, variant: str) -> str:
