@@ -2,6 +2,7 @@ import concurrent.futures
 import os
 import logging
 import errno
+import shutil
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import List, Optional
 
@@ -137,6 +138,17 @@ class FileTransaction:
         os.rename(dst, backup)
 
     def _transfer_file(self, dst, src, opts):
+        """Transfer file from source to destination with fallback support.
+        
+        Attempts to use speedcopy.copyfile first for performance, but falls back
+        to shutil.copyfile if speedcopy fails due to permission issues or other
+        filesystem-related problems.
+        
+        Args:
+            dst (str): Destination file path.
+            src (str): Source file path.
+            opts (dict): Transfer options containing mode information.
+        """
         path_same = self._same_paths(src, dst)
         if path_same:
             self.log.debug(
@@ -147,7 +159,19 @@ class FileTransaction:
 
         if opts["mode"] == self.MODE_COPY:
             self.log.debug(f"Copying file ... {src} -> {dst}")
-            copyfile(src, dst)
+            try:
+                copyfile(src, dst)
+            except (PermissionError, OSError) as exc:
+                self.log.warning(
+                    f"speedcopy.copyfile failed ({exc}), falling back to shutil.copyfile"
+                )
+                try:
+                    shutil.copyfile(src, dst)
+                except Exception as fallback_exc:
+                    self.log.error(
+                        f"Both speedcopy and shutil.copyfile failed for {src} -> {dst}"
+                    )
+                    raise fallback_exc
         elif opts["mode"] == self.MODE_HARDLINK:
             self.log.debug(f"Hardlinking file ... {src} -> {dst}")
             create_hard_link(src, dst)
