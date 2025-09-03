@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from ayon_core.lib import create_hard_link
 
-from speedcopy import copyfile
+from .serverside_speedcopy import copyfile, both_cifs_or_smb2
 
 
 class DuplicateDestinationError(ValueError):
@@ -70,6 +70,10 @@ class FileTransaction:
 
         self._allow_queue_replacements = allow_queue_replacements
 
+        # Cached flag whether server-side copy is possible for this transaction
+        # Computed once in `process` to avoid repeated detection per file.
+        self._serverside_ok = None
+
     def add(self, src, dst, mode=MODE_COPY):
         """Add a new file to transfer queue.
 
@@ -109,6 +113,20 @@ class FileTransaction:
 
     def process(self):
         with ThreadPoolExecutor(max_workers=8) as executor:
+            # Compute serverside_ok once for the whole transaction to avoid
+            # repeated statfs checks or filesystem probing per file.
+            if self._transfers and self._serverside_ok is None:
+                # Peek at any one item from the transfer queue
+                any_dst, (any_src, _) = next(iter(self._transfers.items()))
+                try:
+                    self._serverside_ok = both_cifs_or_smb2(
+                        any_src,
+                        os.path.dirname(os.path.abspath(any_dst)) or "."
+                    )
+                except Exception:
+                    # If detection fails for any reason, disable serverside
+                    # optimization to ensure robust copying.
+                    self._serverside_ok = False
             # Submit backup tasks
             backup_futures = [
                 executor.submit(self._backup_file, dst, src)
@@ -160,7 +178,11 @@ class FileTransaction:
         if opts["mode"] == self.MODE_COPY:
             self.log.debug(f"Copying file ... {src} -> {dst}")
             try:
-                copyfile(src, dst)
+                copyfile(
+                    src,
+                    dst,
+                    serverside_ok=self._serverside_ok
+                )
             except (PermissionError, OSError) as exc:
                 self.log.warning(
                     f"speedcopy.copyfile failed ({exc}), falling back to shutil.copyfile"
