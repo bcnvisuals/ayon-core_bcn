@@ -176,7 +176,7 @@ class FileTransaction:
         self._create_folder_for_file(dst)
 
         if opts["mode"] == self.MODE_COPY:
-            self.log.debug(f"Copying file ... {src} -> {dst}")
+            self.log.debug(f"Copying file server-side ... {src} -> {dst}")
             try:
                 copyfile(
                     src,
