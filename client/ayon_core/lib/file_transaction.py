@@ -3,6 +3,7 @@ import os
 import logging
 import errno
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import List, Optional
 
@@ -140,8 +141,16 @@ class FileTransaction:
                 executor.submit(self._transfer_file, dst, src, opts)
                 for dst, (src, opts) in self._transfers.items()
             ]
-            wait_for_future_errors(
-                executor, transfer_futures, logger=self.log)
+            transfer_start_time = time.perf_counter()
+            try:
+                wait_for_future_errors(
+                    executor, transfer_futures, logger=self.log)
+            finally:
+                transfer_elapsed = time.perf_counter() - transfer_start_time
+                self.log.debug(
+                    f"Transfer of {len(self._transfers)} file(s) finished in "
+                    f"{transfer_elapsed:.2f}s"
+                )
 
     def _backup_file(self, dst, src):
         self.log.debug(f"Checking file ... {src} -> {dst}")
