@@ -1,10 +1,6 @@
 name = "core"
 title = "Core"
-<<<<<<< HEAD
-version = "1.6.11"
-=======
-version = "1.5.3-bcn.3"
->>>>>>> f01b954f5c (Update version to 1.5.3-bcn.3 and enhance file transfer logging in FileTransaction)
+version = "1.6.11-bcn.1"
 
 client_dir = "ayon_core"
 
