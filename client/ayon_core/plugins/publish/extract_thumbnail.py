@@ -47,6 +47,7 @@ class ExtractThumbnail(pyblish.api.InstancePlugin):
         "photoshop",
         "unreal",
         "batchdelivery",
+        "webpublisher",
     ]
     settings_category = "core"
     enabled = False
