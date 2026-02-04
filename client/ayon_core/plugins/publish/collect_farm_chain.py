@@ -61,7 +61,7 @@ class CollectFarmChainDef(
                     "dependency": "Wait for previous (Dependency)",
                     "passthrough": "Do not wait (Parallel)"
                 },
-                default="dependency",
+                default="passthrough",
                 tooltip="Should this job wait for the one with the lower order?"
             )
         ]
