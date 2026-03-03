@@ -18,7 +18,11 @@ import time
 import argparse
 import ctypes
 import ctypes.util
-from fcntl import ioctl
+try:
+    from fcntl import ioctl
+except ImportError:
+    ioctl = None
+
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -32,7 +36,11 @@ def debug(msg: str) -> None:
 
 
 # ----- statfs (standalone) -----
-libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+if sys.platform == "linux":
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+else:
+    libc = None
+
 
 
 class statfs_t(ctypes.Structure):
@@ -62,6 +70,8 @@ _FS_TYPES = {
 
 
 def get_fs_magic(path: str) -> Tuple[int, str]:
+    if not libc:
+        return -1, "UNKNOWN"
     buf = statfs_t()
     bpath = os.fsencode(os.path.abspath(path))
     ret = libc.statfs(ctypes.c_char_p(bpath), ctypes.byref(buf))
@@ -265,7 +275,10 @@ def copyfile(src: str, dst: str, follow_symlinks: bool = True, serverside_ok: bo
             os.close(fsrc)
             raise
         try:
+            if ioctl is None:
+                raise RuntimeError("ioctl is not available on this platform")
             ret = ioctl(fdst, CIFS_IOC_COPYCHUNK_FILE, fsrc)
+
             if ret == 0:
                 debug(">>> Server-side copy succeeded.")
                 os.close(fsrc)
