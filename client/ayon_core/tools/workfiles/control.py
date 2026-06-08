@@ -10,8 +10,8 @@ from ayon_core.lib import Logger, get_ayon_username
 from ayon_core.lib.events import QueuedEventSystem
 from ayon_core.pipeline import Anatomy, registered_host
 from ayon_core.pipeline.context_tools import get_global_context
-from ayon_core.settings import get_project_settings
 from ayon_core.tools.common_models import (
+    SettingsModel,
     HierarchyExpectedSelection,
     HierarchyModel,
     ProjectsModel,
@@ -30,7 +30,7 @@ NOT_SET = object()
 
 class WorkfilesToolExpectedSelection(HierarchyExpectedSelection):
     def __init__(self, controller):
-        super(WorkfilesToolExpectedSelection, self).__init__(
+        super().__init__(
             controller,
             handle_project=False,
             handle_folder=True,
@@ -57,16 +57,14 @@ class WorkfilesToolExpectedSelection(HierarchyExpectedSelection):
         self._workfile_selected = False
         self._representation_selected = False
 
-        super(WorkfilesToolExpectedSelection, self).set_expected_selection(
+        super().set_expected_selection(
             project_name,
             folder_id,
             task_name,
         )
 
     def get_expected_selection_data(self):
-        data = super(
-            WorkfilesToolExpectedSelection, self
-        ).get_expected_selection_data()
+        data = super().get_expected_selection_data()
 
         _is_current = (
             self._project_selected
@@ -145,7 +143,6 @@ class BaseWorkfileController(
         self._host_is_valid = host_is_valid
 
         self._project_anatomy = None
-        self._project_settings = None
         self._event_system = None
         self._log = None
         self._username = NOT_SET
@@ -157,6 +154,7 @@ class BaseWorkfileController(
         self._save_is_enabled = True
 
         # Expected selected folder and task
+        self._settings_model = SettingsModel()
         self._users_model = self._create_users_model()
         self._expected_selection = self._create_expected_selection_obj()
         self._selection_model = self._create_selection_model()
@@ -169,6 +167,11 @@ class BaseWorkfileController(
         if self._log is None:
             self._log = Logger.get_logger("WorkfilesUI")
         return self._log
+
+    def get_window_subtitle(self) -> Optional[str]:
+        if self._host is None:
+            return None
+        return self._host.name
 
     def is_host_valid(self):
         return self._host_is_valid
@@ -209,12 +212,12 @@ class BaseWorkfileController(
     # ----------------------------------------------------
     # Implementation of methods required for backend logic
     # ----------------------------------------------------
+    def get_project_settings(self, project_name):
+        return self._settings_model.get_settings(project_name)
+
     @property
     def project_settings(self):
-        if self._project_settings is None:
-            self._project_settings = get_project_settings(
-                self.get_current_project_name())
-        return self._project_settings
+        return self.get_project_settings(self.get_current_project_name())
 
     @property
     def project_anatomy(self):
@@ -496,7 +499,6 @@ class BaseWorkfileController(
             if folder:
                 folder_id = folder["id"]
 
-        self._project_settings = None
         self._project_anatomy = None
 
         self._current_project_name = project_name
@@ -504,6 +506,8 @@ class BaseWorkfileController(
         self._current_folder_id = folder_id
         self._current_task_name = task_name
 
+        self._settings_model.reset()
+        self._users_model.reset()
         self._projects_model.reset()
         self._hierarchy_model.reset()
         self._workfiles_model.reset()

@@ -6,7 +6,6 @@ from typing import Optional, Any
 
 import ayon_api
 
-from ayon_core.settings import get_project_settings
 from ayon_core.pipeline import get_current_host_name
 from ayon_core.lib import (
     NestedCacheItem,
@@ -15,8 +14,9 @@ from ayon_core.lib import (
 )
 from ayon_core.lib.events import QueuedEventSystem
 from ayon_core.pipeline import Anatomy, get_current_context
-from ayon_core.host import ILoadHost
+from ayon_core.host import ILoadHost, AbstractHost
 from ayon_core.tools.common_models import (
+    SettingsModel,
     ProjectsModel,
     HierarchyModel,
     ThumbnailsModel,
@@ -113,11 +113,13 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         host (Optional[AbstractHost]): Host object. Defaults to None.
     """
 
-    def __init__(self, host=None):
+    def __init__(self, host: Optional[AbstractHost] = None) -> None:
         self._log = None
         self._host = host
 
         self._event_system = self._create_event_system()
+
+        self._project_settings = {}
 
         self._project_anatomy_cache = NestedCacheItem(
             levels=1, lifetime=60)
@@ -133,6 +135,7 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         self._thumbnails_model = ThumbnailsModel()
         self._sitesync_model = SiteSyncModel(self)
         self._users_model = UsersModel(self)
+        self._settings_model = SettingsModel()
 
     @property
     def log(self):
@@ -143,6 +146,11 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
     # ---------------------------------
     # Implementation of abstract methods
     # ---------------------------------
+    def get_window_subtitle(self) -> Optional[str]:
+        if self._host is None:
+            return None
+        return self._host.name
+
     # Events system
     def emit_event(self, topic, data=None, source=None):
         """Use implemented event system to trigger event."""
@@ -160,6 +168,8 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         project_name = self.get_selected_project_name()
         folder_ids = self.get_selected_folder_ids()
 
+        self._project_settings = {}
+
         self._project_anatomy_cache.reset()
         self._loaded_products_cache.reset()
 
@@ -170,6 +180,7 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         self._thumbnails_model.reset()
         self._sitesync_model.reset()
         self._users_model.reset()
+        self._settings_model.reset()
 
         self._projects_model.refresh()
 
@@ -262,6 +273,9 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         return self._hierarchy_model.get_available_tags_by_entity_type(
             project_name
         )
+
+    def get_project_settings(self, project_name: str | None) -> dict:
+        return self._settings_model.get_settings(project_name)
 
     def get_project_anatomy_tags(self, project_name: str) -> list[TagItem]:
         return self._projects_model.get_project_anatomy_tags(project_name)
@@ -481,6 +495,12 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
     def get_remote_site_icon_def(self, project_name):
         return self._sitesync_model.get_remote_site_icon_def(project_name)
 
+    def get_active_site(self, project_name):
+        return self._sitesync_model.get_active_site(project_name)
+
+    def get_remote_site(self, project_name):
+        return self._sitesync_model.get_remote_site(project_name)
+
     def get_version_sync_availability(self, project_name, version_ids):
         return self._sitesync_model.get_version_sync_availability(
             project_name, version_ids
@@ -512,7 +532,7 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         project_name = context.get("project_name")
         if not project_name:
             return output
-        settings = get_project_settings(project_name)
+        settings = self.get_project_settings(project_name)
         profiles = (
             settings
             ["core"]
@@ -540,7 +560,7 @@ class LoaderController(BackendLoaderController, FrontendLoaderController):
         profile = filter_profiles(
             profiles,
             {
-                "hosts": host_name,
+                "host_names": host_name,
                 "task_types": task_type,
             }
         )

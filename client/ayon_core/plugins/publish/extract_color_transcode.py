@@ -1,4 +1,5 @@
 import os
+import re
 import copy
 import clique
 import pyblish.api
@@ -7,9 +8,10 @@ from ayon_core.pipeline import (
     publish,
     get_temp_dir
 )
-from ayon_core.lib import (
-    is_oiio_supported,
-)
+from ayon_core.pipeline.publish.lib import get_default_reviewable_layers
+from ayon_core.pipeline.colorspace import get_representation_ocio_config_path
+from ayon_core.lib import is_oiio_supported
+
 from ayon_core.lib.transcoding import (
     MissingRGBAChannelsError,
     oiio_color_convert,
@@ -28,7 +30,7 @@ class ExtractOIIOTranscode(publish.Extractor):
 
     Target colorspace is selected by profiles in the Settings, based on:
     - host names
-    - product types
+    - product base types
     - product names
     - task types
     - task names
@@ -98,23 +100,33 @@ class ExtractOIIOTranscode(publish.Extractor):
             # Backward compatibility
             instance.data.get("colorspaceView")
         )
-
+        project_settings = instance.context.data["project_settings"]
+        review_layers = get_default_reviewable_layers(project_settings)
         for idx, repre in enumerate(list(repres)):
             self.log.debug("repre ({}): `{}`".format(idx + 1, repre["name"]))
-            if not self._repre_is_valid(repre):
+            if not self._repre_is_valid(repre, profile):
                 continue
 
             added_representations = False
             added_review = False
 
             colorspace_data = repre["colorspaceData"]
+
+            config_path = get_representation_ocio_config_path(
+                repre,
+                anatomy=instance.context.data["anatomy"],
+                logger=self.log
+            )
+            if not config_path:
+                self.log.debug(
+                    "Skipping OIIO Color Transcode because no OCIO config"
+                    " path found on representation."
+                )
+                continue
+
             source_colorspace = colorspace_data["colorspace"]
             source_display = colorspace_data.get("display")
             source_view = colorspace_data.get("view")
-            config_path = colorspace_data.get("config", {}).get("path")
-            if not config_path or not os.path.exists(config_path):
-                self.log.warning("Config file doesn't exist, skipping")
-                continue
 
             # Get representation files to convert
             if isinstance(repre["files"], list):
@@ -172,20 +184,33 @@ class ExtractOIIOTranscode(publish.Extractor):
                 additional_command_args = (output_def["oiiotool_args"]
                                            ["additional_command_args"])
 
-                sequence_files = self._translate_to_sequence(files_to_convert)
+                sequence_files = self._translate_to_sequence(
+                    files_to_convert)
                 self.log.debug("Files to convert: {}".format(sequence_files))
                 missing_rgba_review_channels = False
                 for file_name in sequence_files:
                     if isinstance(file_name, clique.Collection):
-                        # Convert to filepath that can be directly converted
-                        # by oiio like `frame.1001-1025%04d.exr`
-                        file_name: str = file_name.format(
-                            "{head}{range}{padding}{tail}"
+                        # Support sequences with holes by supplying
+                        # dedicated `--frames` argument to `oiiotool`
+                        # Create `frames` string like "1001-1002,1004,1010-1012
+                        # Create `filename` string like "file.#.exr"
+                        frames = file_name.format("{ranges}").replace(" ", "")
+                        frame_padding = file_name.padding
+                        file_name = file_name.format("{head}#{tail}")
+                        parallel_frames = True
+                    elif isinstance(file_name, str):
+                        # Single file
+                        frames = None
+                        frame_padding = None
+                        parallel_frames = False
+                    else:
+                        raise TypeError(
+                            f"Unsupported file name type: {type(file_name)}."
+                            " Expected str or clique.Collection."
                         )
 
                     self.log.debug("Transcoding file: `{}`".format(file_name))
-                    input_path = os.path.join(original_staging_dir,
-                                              file_name)
+                    input_path = os.path.join(original_staging_dir, file_name)
                     output_path = self._get_output_file_path(input_path,
                                                              new_staging_dir,
                                                              output_extension)
@@ -201,7 +226,11 @@ class ExtractOIIOTranscode(publish.Extractor):
                             source_display=source_display,
                             source_view=source_view,
                             additional_command_args=additional_command_args,
-                            logger=self.log
+                            frames=frames,
+                            frame_padding=frame_padding,
+                            parallel_frames=parallel_frames,
+                            review_layers=review_layers,
+                            logger=self.log,
                         )
                     except MissingRGBAChannelsError as exc:
                         missing_rgba_review_channels = True
@@ -263,6 +292,21 @@ class ExtractOIIOTranscode(publish.Extractor):
             if "delete" in tags and "thumbnail" not in tags:
                 instance.data["representations"].remove(repre)
 
+            # In case instance is not flagged for reviewable workflow
+            # by `review` family we have to add it so it can be processed
+            # by ExtractReview plugin
+            if (
+                added_review
+                and "review" not in instance.data["families"]
+            ):
+                # TODO: Preferably we do not mess with families
+                #  at this point in processing, but ExtractReview
+                #  currently requires it. And this is the only way
+                #  to have a representation with `review` tag
+                #  actually getting picked up for non-review
+                #  families.
+                instance.data["families"].append("review")
+
         instance.data["representations"].extend(new_representations)
 
     def _rename_in_representation(self, new_repre, files_to_convert,
@@ -294,16 +338,18 @@ class ExtractOIIOTranscode(publish.Extractor):
         new_repre["files"] = renamed_files
 
     def _translate_to_sequence(self, files_to_convert):
-        """Returns original list or a clique.Collection of a sequence.
+        """Returns original individual filepaths or list of clique.Collection.
 
-        Uses clique to find frame sequence Collection.
-        If sequence not found, it returns original list.
+        Uses clique to find frame sequence, and return the collections instead.
+        If sequence not detected in input filenames, it returns original list.
 
         Args:
-            files_to_convert (list): list of file names
+            files_to_convert (list[str]): list of file names
         Returns:
-            list[str | clique.Collection]: List of filepaths or a list
-                of Collections (usually one, unless there are holes)
+            list[str | clique.Collection]: List of
+                filepaths ['fileA.exr', 'fileB.exr']
+                or clique.Collection for a sequence.
+
         """
         pattern = [clique.PATTERNS["frames"]]
         collections, _ = clique.assemble(
@@ -314,14 +360,7 @@ class ExtractOIIOTranscode(publish.Extractor):
                 raise ValueError(
                     "Too many collections {}".format(collections))
 
-            collection = collections[0]
-            # TODO: Technically oiiotool supports holes in the sequence as well
-            #  using the dedicated --frames argument to specify the frames.
-            #  We may want to use that too so conversions of sequences with
-            #  holes will perform faster as well.
-            # Separate the collection so that we have no holes/gaps per
-            # collection.
-            return collection.separate()
+            return collections
 
         return files_to_convert
 
@@ -339,33 +378,39 @@ class ExtractOIIOTranscode(publish.Extractor):
     def _get_profile(self, instance):
         """Returns profile if and how repre should be color transcoded."""
         host_name = instance.context.data["hostName"]
-        product_type = instance.data["productType"]
+        product_base_type = instance.data.get("productBaseType")
+        if not product_base_type:
+            product_base_type = instance.data["productType"]
         product_name = instance.data["productName"]
         task_data = instance.data["anatomyData"].get("task", {})
         task_name = task_data.get("name")
         task_type = task_data.get("type")
         filtering_criteria = {
-            "hosts": host_name,
-            "product_types": product_type,
+            "host_names": host_name,
+            "product_base_types": product_base_type,
             "product_names": product_name,
             "task_names": task_name,
             "task_types": task_type,
         }
-        profile = filter_profiles(self.profiles, filtering_criteria,
-                                  logger=self.log)
+        profile = filter_profiles(
+            self.profiles,
+            filtering_criteria,
+            logger=self.log
+        )
 
         if not profile:
-            self.log.debug((
-              "Skipped instance. None of profiles in presets are for"
-              " Host: \"{}\" | Product types: \"{}\" | Product names: \"{}\""
-              " | Task name \"{}\" | Task type \"{}\""
-            ).format(
-                host_name, product_type, product_name, task_name, task_type
-            ))
+            self.log.debug(
+                "Skipped instance. None of profiles in presets are for"
+                f" Host name: \"{host_name}\""
+                f" | Product base type: \"{product_base_type}\""
+                f" | Product name: \"{product_name}\""
+                f" | Task name \"{task_name}\""
+                f" | Task type \"{task_type}\""
+            )
 
         return profile
 
-    def _repre_is_valid(self, repre):
+    def _repre_is_valid(self, repre, profile):
         """Validation if representation should be processed.
 
         Args:
@@ -392,7 +437,20 @@ class ExtractOIIOTranscode(publish.Extractor):
                            "Skipped.".format(repre["name"]))
             return False
 
-        return True
+        representations_names = profile["representation_names"]
+
+        # make sure that positive will be returned if no representations_names
+        if not representations_names:
+            return True
+
+        repre_name = repre["name"]
+
+        # check if any of representation patterns match in repre_name
+        for r_pattern in representations_names:
+            if re.match(r_pattern, repre_name):
+                return True
+
+        return False
 
     def _mark_original_repre_for_deletion(self, repre, profile, added_review):
         """If new transcoded representation created, delete old."""

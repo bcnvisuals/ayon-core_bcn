@@ -5,6 +5,7 @@ from typing import Optional
 from qtpy import QtWidgets, QtCore, QtGui
 
 from ayon_core.style import get_default_entity_icon_color
+from ayon_core.lib.icon_definitions import MaterialSymbolsIcon
 from ayon_core.tools.utils import (
     DeselectableTreeView,
     TasksQtModel,
@@ -69,11 +70,10 @@ class LoaderTasksQtModel(TasksQtModel):
     def _get_no_tasks_item(self):
         if self._no_tasks_item is None:
             item = QtGui.QStandardItem("No task")
-            icon = get_qt_icon({
-                "type": "material-symbols",
-                "name": "indeterminate_check_box",
-                "color": get_default_entity_icon_color(),
-            })
+            icon = get_qt_icon(MaterialSymbolsIcon(
+                "indeterminate_check_box",
+                color=get_default_entity_icon_color(),
+            ))
             item.setData(icon, QtCore.Qt.DecorationRole)
             item.setData(NO_TASKS_ID, ITEM_ID_ROLE)
             item.setEditable(False)
@@ -322,6 +322,7 @@ class LoaderTasksWidget(QtWidgets.QWidget):
         tasks_view.setSelectionMode(
             QtWidgets.QAbstractItemView.ExtendedSelection
         )
+        tasks_view.setIndentation(0)
 
         tasks_model = LoaderTasksQtModel(controller)
         tasks_proxy_model = LoaderTasksProxyModel()

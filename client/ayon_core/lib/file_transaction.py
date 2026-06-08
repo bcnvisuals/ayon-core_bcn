@@ -153,7 +153,7 @@ class FileTransaction:
                 )
 
     def _backup_file(self, dst, src):
-        self.log.debug(f"Checking file ... {src} -> {dst}")
+        self.log.debug(f"Checking file destination ... {src} -> {dst}")
         path_same = self._same_paths(src, dst)
         if path_same or not os.path.exists(dst):
             return
@@ -167,9 +167,9 @@ class FileTransaction:
     def _transfer_file(self, dst, src, opts):
         """Transfer file from source to destination with fallback support.
         
-        Attempts to use speedcopy.copyfile first for performance, but falls back
-        to shutil.copyfile if speedcopy fails due to permission issues or other
-        filesystem-related problems.
+        Attempts to use the configured copyfile implementation first, but
+        falls back to shutil.copyfile if it fails due to permission issues or
+        other filesystem-related problems.
         
         Args:
             dst (str): Destination file path.
@@ -194,13 +194,13 @@ class FileTransaction:
                 )
             except (PermissionError, OSError) as exc:
                 self.log.warning(
-                    f"speedcopy.copyfile failed ({exc}), falling back to shutil.copyfile"
+                    f"copyfile failed ({exc}), falling back to shutil.copyfile"
                 )
                 try:
                     shutil.copyfile(src, dst)
                 except Exception as fallback_exc:
                     self.log.error(
-                        f"Both speedcopy and shutil.copyfile failed for {src} -> {dst}"
+                        f"Both copyfile and shutil.copyfile failed for {src} -> {dst}"
                     )
                     raise fallback_exc
         elif opts["mode"] == self.MODE_HARDLINK:

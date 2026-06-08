@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Iterable, Any, Optional
+from typing import Iterable, Any, Optional, Union
 
+from ayon_core.lib.icon_definitions import IconBase, AwesomeFontIcon
 from ayon_core.lib.attribute_definitions import (
     AbstractAttrDef,
     deserialize_attr_defs,
@@ -42,7 +43,7 @@ class ProductTypeItem:
 class ProductBaseTypeItem:
     """Item representing the product base type."""
 
-    def __init__(self, name: str, icon: dict[str, Any]):
+    def __init__(self, name: str, icon: AwesomeFontIcon):
         """Initialize product base type item."""
         self.name = name
         self.icon = icon
@@ -56,12 +57,16 @@ class ProductBaseTypeItem:
         """
         return {
             "name": self.name,
-            "icon": self.icon,
+            "icon": {
+                "name": self.icon.name,
+                "color": self.icon.color,
+            },
         }
 
     @classmethod
     def from_data(
-            cls, data: dict[str, Any]) -> ProductBaseTypeItem:
+        cls, data: dict[str, Any]
+    ) -> ProductBaseTypeItem:
         """Create item from data dictionary.
 
         Args:
@@ -71,6 +76,8 @@ class ProductBaseTypeItem:
             ProductBaseTypeItem: Item created from the provided data.
 
         """
+        icon = data["icon"]
+        data["icon"] = AwesomeFontIcon(icon["name"], color=icon["color"])
         return cls(**data)
 
 
@@ -83,7 +90,7 @@ class ProductItem:
         product_name (str): Product name.
         product_icon (dict[str, Any]): Product icon definition.
         product_in_scene (bool): Is product in scene (only when used in DCC).
-        group_name (str): Group name.
+        group_name (Union[str, None]): Group name.
         folder_id (str): Folder id.
         folder_label (str): Folder label.
         version_items (dict[str, VersionItem]): Version items by id.
@@ -96,7 +103,7 @@ class ProductItem:
         product_base_type: str,
         product_name: str,
         product_icon: dict[str, Any],
-        group_name: str,
+        group_name: Union[str, None],
         folder_id: str,
         folder_label: str,
         version_items: dict[str, VersionItem],
@@ -317,7 +324,7 @@ class ActionItem:
         identifier (str): Action identifier.
         label (str): Action label.
         group_label (Optional[str]): Group label.
-        icon (Optional[dict[str, Any]]): Action icon definition.
+        icon (IconBase | dict[str, Any] | None): Action icon definition.
         tooltip (Optional[str]): Action tooltip.
         order (int): Action order.
         data (Optional[dict[str, Any]]): Additional action data.
@@ -330,7 +337,7 @@ class ActionItem:
         identifier: str,
         label: str,
         group_label: Optional[str],
-        icon: Optional[dict[str, Any]],
+        icon: IconBase | dict[str, Any] | None,
         tooltip: Optional[str],
         order: int,
         data: Optional[dict[str, Any]],
@@ -498,6 +505,10 @@ class BackendLoaderController(_BaseLoaderController):
         pass
 
     @abstractmethod
+    def get_project_settings(self, project_name: str | None) -> dict:
+        pass
+
+    @abstractmethod
     def get_product_type_icons_mapping(
         self, project_name: Optional[str]
     ) -> ProductTypeIconMapping:
@@ -511,6 +522,15 @@ class BackendLoaderController(_BaseLoaderController):
 
 
 class FrontendLoaderController(_BaseLoaderController):
+    @abstractmethod
+    def get_window_subtitle(self) -> Optional[str]:
+        """Get window subtitle.
+
+        Returns:
+            Optional[str]: Window subtitle.
+
+        """
+
     @abstractmethod
     def register_event_callback(self, topic, callback):
         """Register callback for an event topic.
@@ -1050,7 +1070,12 @@ class FrontendLoaderController(_BaseLoaderController):
         pass
 
     @abstractmethod
-    def change_products_group(self, project_name, product_ids, group_name):
+    def change_products_group(
+        self,
+        project_name: str,
+        product_ids: set[str],
+        group_name: str,
+    ):
         """Change group of products.
 
         Triggers event "products.group.changed" with data:
@@ -1065,8 +1090,8 @@ class FrontendLoaderController(_BaseLoaderController):
             project_name (str): Project name.
             product_ids (Iterable[str]): Product ids.
             group_name (str): New group name.
-        """
 
+        """
         pass
 
     @abstractmethod
@@ -1150,6 +1175,33 @@ class FrontendLoaderController(_BaseLoaderController):
         Returns:
             Union[dict[str, Any], None]: Icon definition or None if site sync
                 is not enabled for the project.
+        """
+
+        pass
+
+    @abstractmethod
+    def get_active_site(self, project_name: str) -> str | None:
+        """Active site name.
+
+        Args:
+            project_name (str): Project name.
+
+        Returns:
+            Union[str, None]: Site name or None if site sync is not enabled.
+
+        """
+        pass
+
+    @abstractmethod
+    def get_remote_site(self, project_name: str) -> str | None:
+        """Remote site name.
+
+        Args:
+            project_name (str): Project name.
+
+        Returns:
+            Union[str, None]: Site name or None if site sync is not enabled.
+
         """
 
         pass

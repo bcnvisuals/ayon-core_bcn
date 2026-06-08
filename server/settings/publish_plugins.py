@@ -8,7 +8,6 @@ from ayon_server.settings import (
     normalize_name,
     ensure_unique_names,
     task_types_enum,
-    anatomy_template_items_enum
 )
 from ayon_server.exceptions import BadRequestException
 from ayon_server.types import ColorRGBA_uint8
@@ -49,6 +48,14 @@ class CollectAudioModel(BaseSettingsModel):
     )
 
 
+class CollectHierarchyModel(BaseSettingsModel):
+    _isGroup = True
+    edit_shot_attributes_on_update: bool = SettingsField(
+        True,
+        title="Edit shot attributes on update"
+    )
+
+
 class CollectSceneVersionModel(BaseSettingsModel):
     _isGroup = True
     hosts: list[str] = SettingsField(
@@ -74,24 +81,46 @@ class CollectFramesFixDefModel(BaseSettingsModel):
     )
 
 
+def usd_contribution_layer_types():
+    return [
+        {"value": "asset", "label": "Asset"},
+        {"value": "shot", "label": "Shot"},
+    ]
+
+
 class ContributionLayersModel(BaseSettingsModel):
     _layout = "compact"
-    name: str = SettingsField(title="Name")
-    order: str = SettingsField(
+    name: str = SettingsField(
+        default="",
+        regex="[A-Za-z0-9_-]+",
+        title="Name")
+    scope: list[str] = SettingsField(
+        # This should actually be returned from a callable to `default_factory`
+        # because lists are mutable. However, the frontend can't interpret
+        # the callable. It will fail to apply it as the default. Specifying
+        # this default directly did not show any ill side effects.
+        default=["asset", "shot"],
+        title="Scope",
+        min_items=1,
+        enum_resolver=usd_contribution_layer_types)
+    order: int = SettingsField(
+        default=0,
         title="Order",
-        description="Higher order means a higher strength and stacks the "
-                    "layer on top.")
+        description=(
+            "Higher order means a higher strength and stacks the layer on top."
+        )
+    )
 
 
 class CollectUSDLayerContributionsProfileModel(BaseSettingsModel):
     """Profiles to define instance attribute defaults for USD contribution."""
     _layout = "expanded"
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types",
+        title="Product base types",
         description=(
-            "The product types to match this profile to. When matched, the"
-            " settings below would apply to the instance as default"
+            "The product base types to match this profile to. When matched,"
+            " the settings below would apply to the instance as default"
             " attributes."
         ),
         section="Filter"
@@ -105,6 +134,10 @@ class CollectUSDLayerContributionsProfileModel(BaseSettingsModel):
             " allows to filter the profile to only be valid if currently "
             " creating from within that task type."
         ),
+    )
+    task_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Task names",
     )
     contribution_enabled: bool = SettingsField(
         True,
@@ -218,11 +251,11 @@ def ensure_unique_resolution_option(
 
 class CollectExplicitResolutionModel(BaseSettingsModel):
     enabled: bool = SettingsField(True, title="Enabled")
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types",
+        title="Product base types",
         description=(
-            "Only activate the attribute for following product types."
+            "Only activate the attribute for following product base types."
         )
     )
     options: list[ResolutionOptionsModel] = SettingsField(
@@ -288,13 +321,19 @@ class PluginStateByHostModel(BaseSettingsModel):
 
 class ValidateIntentProfile(BaseSettingsModel):
     _layout = "expanded"
-    hosts: list[str] = SettingsField(default_factory=list, title="Host names")
+    host_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Host names",
+    )
     task_types: list[str] = SettingsField(
         default_factory=list,
         title="Task types",
         enum_resolver=task_types_enum
     )
-    tasks: list[str] = SettingsField(default_factory=list, title="Task names")
+    task_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Task names",
+    )
     # TODO This was 'validate' in v3
     validate_intent: bool = SettingsField(True, title="Validate")
 
@@ -400,24 +439,32 @@ class ExtractThumbnailOIIODefaultsModel(BaseSettingsModel):
     )
 
 
-class ExtractThumbnailModel(BaseSettingsModel):
-    _isGroup = True
-    enabled: bool = SettingsField(True)
-    product_names: list[str] = SettingsField(
+class ExtractThumbnailProfileModel(BaseSettingsModel):
+    product_base_types: list[str] = SettingsField(
+        default_factory=list, title="Product base types"
+    )
+    host_names: list[str] = SettingsField(
+        default_factory=list, title="Host names"
+    )
+    task_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product names"
+        title="Task types",
+        enum_resolver=task_types_enum,
+    )
+    task_names: list[str] = SettingsField(
+        default_factory=list, title="Task names"
+    )
+    product_names: list[str] = SettingsField(
+        default_factory=list, title="Product names"
     )
     integrate_thumbnail: bool = SettingsField(
-        True,
-        title="Integrate Thumbnail Representation"
+        True, title="Integrate Thumbnail Representation"
     )
     target_size: ResizeModel = SettingsField(
-        default_factory=ResizeModel,
-        title="Target size"
+        default_factory=ResizeModel, title="Target size"
     )
     background_color: ColorRGBA_uint8 = SettingsField(
-        (0, 0, 0, 0.0),
-        title="Background color"
+        (0, 0, 0, 0.0), title="Background color"
     )
     duration_split: float = SettingsField(
         0.5,
@@ -431,6 +478,15 @@ class ExtractThumbnailModel(BaseSettingsModel):
     )
     ffmpeg_args: ExtractThumbnailFFmpegModel = SettingsField(
         default_factory=ExtractThumbnailFFmpegModel
+    )
+
+
+class ExtractThumbnailModel(BaseSettingsModel):
+    _isGroup = True
+    enabled: bool = SettingsField(True)
+
+    profiles: list[ExtractThumbnailProfileModel] = SettingsField(
+        default_factory=list, title="Profiles"
     )
 
 
@@ -466,6 +522,18 @@ class UseDisplayViewModel(BaseSettingsModel):
             "View of the target transform. If left empty, the"
             " scene View value will be used."
         )
+    )
+
+
+class ExtractThumbnailFromSourceModel(BaseSettingsModel):
+    """Thumbnail extraction from source files using ffmpeg and oiiotool."""
+    enabled: bool = SettingsField(True)
+
+    target_size: ResizeModel = SettingsField(
+        default_factory=ResizeModel, title="Target size"
+    )
+    background_color: ColorRGBA_uint8 = SettingsField(
+        (0, 0, 0, 0.0), title="Background color"
     )
 
 
@@ -535,11 +603,11 @@ class ExtractOIIOTranscodeOutputModel(BaseSettingsModel):
 
 
 class ExtractOIIOTranscodeProfileModel(BaseSettingsModel):
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types"
+        title="Product base types"
     )
-    hosts: list[str] = SettingsField(
+    host_names: list[str] = SettingsField(
         default_factory=list,
         title="Host names"
     )
@@ -555,6 +623,13 @@ class ExtractOIIOTranscodeProfileModel(BaseSettingsModel):
     product_names: list[str] = SettingsField(
         default_factory=list,
         title="Product names"
+    )
+    representation_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Representation names",
+        description=(
+            "Filter representations by names supporting regex pattern inputs"
+        )
     )
     delete_original: bool = SettingsField(
         True,
@@ -647,9 +722,9 @@ class ExtractOIIOPostProcessProfileModel(BaseSettingsModel):
         default_factory=list,
         title="Task names"
     )
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types"
+        title="Product base types"
     )
     product_names: list[str] = SettingsField(
         default_factory=list,
@@ -866,11 +941,11 @@ class ExtractReviewOutputDefModel(BaseSettingsModel):
 
 class ExtractReviewProfileModel(BaseSettingsModel):
     _layout = "expanded"
-    product_types: list[str] = SettingsField(
-        default_factory=list, title="Product types"
+    product_base_types: list[str] = SettingsField(
+        default_factory=list,
+        title="Product base types"
     )
-    # TODO use hosts enum
-    hosts: list[str] = SettingsField(
+    host_names: list[str] = SettingsField(
         default_factory=list, title="Host names"
     )
     task_types: list[str] = SettingsField(
@@ -952,11 +1027,11 @@ class ExtractBurninDef(BaseSettingsModel):
 
 class ExtractBurninProfile(BaseSettingsModel):
     _layout = "expanded"
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types"
+        title="Product base types"
     )
-    hosts: list[str] = SettingsField(
+    host_names: list[str] = SettingsField(
         default_factory=list,
         title="Host names"
     )
@@ -1001,13 +1076,13 @@ class ExtractBurninModel(BaseSettingsModel):
 
 class PreIntegrateThumbnailsProfile(BaseSettingsModel):
     _isGroup = True
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types",
+        title="Product base types",
     )
-    hosts: list[str] = SettingsField(
+    host_names: list[str] = SettingsField(
         default_factory=list,
-        title="Hosts",
+        title="Host names",
     )
     task_types: list[str] = SettingsField(
         default_factory=list,
@@ -1037,17 +1112,23 @@ class PreIntegrateThumbnailsModel(BaseSettingsModel):
 
 
 class IntegrateProductGroupProfile(BaseSettingsModel):
-    product_types: list[str] = SettingsField(
+    product_base_types: list[str] = SettingsField(
         default_factory=list,
-        title="Product types"
+        title="Product base types",
     )
-    hosts: list[str] = SettingsField(default_factory=list, title="Hosts")
+    host_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Host names",
+    )
     task_types: list[str] = SettingsField(
         default_factory=list,
         title="Task types",
         enum_resolver=task_types_enum
     )
-    tasks: list[str] = SettingsField(default_factory=list, title="Task names")
+    task_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Task names",
+    )
     template: str = SettingsField("", title="Template")
 
 
@@ -1067,77 +1148,6 @@ class IntegrateProductGroupModel(BaseSettingsModel):
             default_factory=list,
             title="Product group profiles"
         )
-    )
-
-
-class IntegrateANProductGroupProfileModel(BaseSettingsModel):
-    product_types: list[str] = SettingsField(
-        default_factory=list,
-        title="Product types"
-    )
-    hosts: list[str] = SettingsField(
-        default_factory=list,
-        title="Hosts"
-    )
-    task_types: list[str] = SettingsField(
-        default_factory=list,
-        title="Task types",
-        enum_resolver=task_types_enum
-    )
-    tasks: list[str] = SettingsField(
-        default_factory=list,
-        title="Task names"
-    )
-    template: str = SettingsField("", title="Template")
-
-
-class IntegrateANTemplateNameProfileModel(BaseSettingsModel):
-    product_types: list[str] = SettingsField(
-        default_factory=list,
-        title="Product types"
-    )
-    hosts: list[str] = SettingsField(
-        default_factory=list,
-        title="Hosts"
-    )
-    task_types: list[str] = SettingsField(
-        default_factory=list,
-        title="Task types",
-        enum_resolver=task_types_enum
-    )
-    tasks: list[str] = SettingsField(
-        default_factory=list,
-        title="Task names"
-    )
-    template_name: str = SettingsField(
-        "",
-        title="Template name",
-        enum_resolver=anatomy_template_items_enum(category="publish")
-    )
-
-
-class IntegrateHeroTemplateNameProfileModel(BaseSettingsModel):
-    product_types: list[str] = SettingsField(
-        default_factory=list,
-        title="Product types"
-    )
-    hosts: list[str] = SettingsField(
-        default_factory=list,
-        title="Hosts"
-    )
-    task_types: list[str] = SettingsField(
-        default_factory=list,
-        title="Task types",
-        enum_resolver=task_types_enum
-    )
-    task_names: list[str] = SettingsField(
-        default_factory=list,
-        title="Task names"
-    )
-    template_name: str = SettingsField(
-        "",
-        title="Template name",
-        enum_resolver=anatomy_template_items_enum(category="hero")
     )
 
 
@@ -1220,6 +1230,10 @@ class PublishPuginsModel(BaseSettingsModel):
         default_factory=CollectExplicitResolutionModel,
         title="Collect Explicit Resolution"
     )
+    CollectHierarchy: CollectHierarchyModel = SettingsField(
+        default_factory=CollectHierarchyModel,
+        title="Collect Hierarchy"
+    )
     ValidateEditorialAssetName: ValidateBaseModel = SettingsField(
         default_factory=ValidateBaseModel,
         title="Validate Editorial Asset Name"
@@ -1243,6 +1257,16 @@ class PublishPuginsModel(BaseSettingsModel):
     ExtractThumbnail: ExtractThumbnailModel = SettingsField(
         default_factory=ExtractThumbnailModel,
         title="Extract Thumbnail"
+    )
+    ExtractThumbnailFromSource: ExtractThumbnailFromSourceModel = SettingsField(  # noqa: E501
+        default_factory=ExtractThumbnailFromSourceModel,
+        title="Extract Thumbnail from source",
+        description=(
+            "Extract thumbnails from explicit file set in "
+            "instance.data['thumbnailSource'] using oiiotool"
+            " or ffmpeg."
+            "Used when artist provided thumbnail source."
+        )
     )
     ExtractOIIOTranscode: ExtractOIIOTranscodeModel = SettingsField(
         default_factory=ExtractOIIOTranscodeModel,
@@ -1345,54 +1369,59 @@ DEFAULT_PUBLISH_VALUES = {
         "enabled": True,
         "contribution_layers": [
             # Asset layers
-            {"name": "model", "order": 100},
-            {"name": "assembly", "order": 150},
-            {"name": "groom", "order": 175},
-            {"name": "look", "order": 200},
-            {"name": "rig", "order": 300},
+            {"name": "model", "order": 100, "scope": ["asset"]},
+            {"name": "assembly", "order": 150, "scope": ["asset"]},
+            {"name": "groom", "order": 175, "scope": ["asset"]},
+            {"name": "look", "order": 200, "scope": ["asset"]},
+            {"name": "rig", "order": 300, "scope": ["asset"]},
             # Shot layers
-            {"name": "layout", "order": 200},
-            {"name": "animation", "order": 300},
-            {"name": "simulation", "order": 400},
-            {"name": "fx", "order": 500},
-            {"name": "lighting", "order": 600},
+            {"name": "layout", "order": 200, "scope": ["shot"]},
+            {"name": "animation", "order": 300, "scope": ["shot"]},
+            {"name": "simulation", "order": 400, "scope": ["shot"]},
+            {"name": "fx", "order": 500, "scope": ["shot"]},
+            {"name": "lighting", "order": 600, "scope": ["shot"]},
         ],
         "profiles": [
             {
-                "product_types": ["model"],
+                "product_base_types": ["model"],
                 "task_types": [],
+                "task_names": [],
                 "contribution_enabled": True,
                 "contribution_layer": "model",
                 "contribution_apply_as_variant": True,
                 "contribution_target_product": "usdAsset"
             },
             {
-                "product_types": ["look"],
+                "product_base_types": ["look"],
                 "task_types": [],
+                "task_names": [],
                 "contribution_enabled": True,
                 "contribution_layer": "look",
                 "contribution_apply_as_variant": True,
                 "contribution_target_product": "usdAsset"
             },
             {
-                "product_types": ["groom"],
+                "product_base_types": ["groom"],
                 "task_types": [],
+                "task_names": [],
                 "contribution_enabled": True,
                 "contribution_layer": "groom",
                 "contribution_apply_as_variant": True,
                 "contribution_target_product": "usdAsset"
             },
             {
-                "product_types": ["rig"],
+                "product_base_types": ["rig"],
                 "task_types": [],
+                "task_names": [],
                 "contribution_enabled": True,
                 "contribution_layer": "rig",
                 "contribution_apply_as_variant": True,
                 "contribution_target_product": "usdAsset"
             },
             {
-                "product_types": ["usd"],
+                "product_base_types": ["usd"],
                 "task_types": [],
+                "task_names": [],
                 "contribution_enabled": True,
                 "contribution_layer": "assembly",
                 "contribution_apply_as_variant": False,
@@ -1402,10 +1431,13 @@ DEFAULT_PUBLISH_VALUES = {
     },
     "CollectExplicitResolution": {
         "enabled": True,
-        "product_types": [
+        "product_base_types": [
             "shot"
         ],
         "options": []
+    },
+    "CollectHierarchy": {
+        "edit_shot_attributes_on_update": True,
     },
     "ValidateEditorialAssetName": {
         "enabled": True,
@@ -1458,22 +1490,40 @@ DEFAULT_PUBLISH_VALUES = {
     },
     "ExtractThumbnail": {
         "enabled": True,
-        "product_names": [],
-        "integrate_thumbnail": True,
+        "profiles": [
+            {
+                "product_base_types": [],
+                "host_names": [],
+                "task_types": [],
+                "task_names": [],
+                "product_names": [],
+                "integrate_thumbnail": True,
+                "target_size": {
+                    "type": "source"
+                },
+                "duration_split": 0.5,
+                "oiiotool_defaults": {
+                    "type": "colorspace",
+                    "colorspace": "color_picking"
+                },
+                "ffmpeg_args": {
+                    "input": [
+                        "-apply_trc gamma22"
+                    ],
+                    "output": []
+                }
+            }
+        ]
+    },
+    "ExtractThumbnailFromSource": {
+        "enabled": True,
         "target_size": {
-            "type": "source"
+            "type": "resize",
+            "resize": {
+                "width": 300,
+                "height": 170
+            }
         },
-        "duration_split": 0.5,
-        "oiiotool_defaults": {
-            "type": "colorspace",
-            "colorspace": "color_picking"
-        },
-        "ffmpeg_args": {
-            "input": [
-                "-apply_trc gamma22"
-            ],
-            "output": []
-        }
     },
     "ExtractOIIOTranscode": {
         "enabled": True,
@@ -1487,8 +1537,8 @@ DEFAULT_PUBLISH_VALUES = {
         "enabled": True,
         "profiles": [
             {
-                "product_types": [],
-                "hosts": [],
+                "product_base_types": [],
+                "host_names": [],
                 "task_types": [],
                 "outputs": [
                     {
@@ -1554,7 +1604,11 @@ DEFAULT_PUBLISH_VALUES = {
                                 "-c:a aac",
                                 "-b:a 192k",
                                 "-g 1",
-                                "-movflags faststart"
+                                "-movflags faststart",
+                                "-color_range tv",
+                                "-colorspace bt709",
+                                "-color_primaries bt709",
+                                "-color_trc bt709",
                             ]
                         },
                         "filter": {
@@ -1586,8 +1640,8 @@ DEFAULT_PUBLISH_VALUES = {
                 ]
             },
             {
-                "product_types": [],
-                "hosts": ["substancepainter"],
+                "product_base_types": [],
+                "host_names": ["substancepainter"],
                 "task_types": [],
                 "outputs": [
                     {
@@ -1653,7 +1707,11 @@ DEFAULT_PUBLISH_VALUES = {
                                 "-c:a aac",
                                 "-b:a 192k",
                                 "-g 1",
-                                "-movflags faststart"
+                                "-movflags faststart",
+                                "-color_range tv",
+                                "-colorspace bt709",
+                                "-color_primaries bt709",
+                                "-color_trc bt709",
                             ]
                         },
                         "filter": {
@@ -1692,8 +1750,8 @@ DEFAULT_PUBLISH_VALUES = {
             "font_size": 42,
             "font_color": [255, 255, 255, 1.0],
             "bg_color": [0, 0, 0, 0.5],
-            "x_offset": 5,
-            "y_offset": 5,
+            "x_offset": 0,
+            "y_offset": 0,
             "bg_padding": 5,
             "font_filepath": {
                 "windows": "",
@@ -1703,8 +1761,8 @@ DEFAULT_PUBLISH_VALUES = {
         },
         "profiles": [
             {
-                "product_types": [],
-                "hosts": [],
+                "product_base_types": [],
+                "host_names": [],
                 "task_types": [],
                 "task_names": [],
                 "product_names": [],
@@ -1727,8 +1785,8 @@ DEFAULT_PUBLISH_VALUES = {
                 ]
             },
             {
-                "product_types": ["review"],
-                "hosts": [
+                "product_base_types": ["review"],
+                "host_names": [
                     "maya",
                     "houdini",
                     "max"
@@ -1770,10 +1828,10 @@ DEFAULT_PUBLISH_VALUES = {
     "IntegrateProductGroup": {
         "product_grouping_profiles": [
             {
-                "product_types": [],
-                "hosts": [],
+                "product_base_types": [],
+                "host_names": [],
                 "task_types": [],
-                "tasks": [],
+                "task_names": [],
                 "template": ""
             }
         ]

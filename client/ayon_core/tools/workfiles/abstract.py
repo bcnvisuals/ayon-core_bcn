@@ -276,6 +276,10 @@ class AbstractWorkfilesBackend(AbstractWorkfilesCommon):
         """
         pass
 
+    @abstractmethod
+    def get_project_settings(self, project_name: str | None) -> dict:
+        pass
+
     @property
     @abstractmethod
     def project_anatomy(self):
@@ -377,6 +381,15 @@ class AbstractWorkfilesFrontend(AbstractWorkfilesCommon):
     Selection is separated into 2 parts, first is what UI elements tell
     about selection, and second is what UI should show as selected.
     """
+
+    @abstractmethod
+    def get_window_subtitle(self) -> Optional[str]:
+        """Get window subtitle.
+
+        Returns:
+            Optional[str]: Window subtitle.
+
+        """
 
     @abstractmethod
     def register_event_callback(self, topic, callback):
