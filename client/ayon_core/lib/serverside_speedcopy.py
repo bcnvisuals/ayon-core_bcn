@@ -185,16 +185,14 @@ def _copyfile_sendfile(fsrc, fdst) -> bool:
     if not _sendfile:
         return False
     max_bcount = 2**31 - 1
-    remaining = max_bcount
     offset = 0
     used = False
     try:
-        while remaining > 0:
+        while True:
             sent = _sendfile(fdst.fileno(), fsrc.fileno(), offset, max_bcount)
             if sent == 0:
                 break
             offset += sent
-            remaining -= sent
             used = True
     except OSError as e:
         if e.errno in _SENDFILE_SOFT_ERRORS:
@@ -270,7 +268,7 @@ def copyfile(src: str, dst: str, follow_symlinks: bool = True, serverside_ok: bo
         debug(">>> Attempting server-side CIFS copy...")
         fsrc = os.open(src, os.O_RDONLY)
         try:
-            fdst = os.open(dst, os.O_WRONLY | os.O_CREAT)
+            fdst = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
         except Exception:
             os.close(fsrc)
             raise
