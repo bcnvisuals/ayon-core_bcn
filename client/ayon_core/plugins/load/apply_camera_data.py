@@ -58,4 +58,4 @@ class ApplyCameraData(load.LoaderPlugin):
                 f"Set win_scale to (U: {winsizex}, V: {winsizey}) on node {camera_node.name()}"
             )
         except Exception as e:
-            self.log.error(f"Failed to set win_scale: {e}") 
+            self.log.error(f"Failed to set win_scale: {e}")

@@ -30,7 +30,7 @@ class CollectFarmChainDef(
         targets: Plugin targets (only "local").
         families: Instance families this plugin applies to.
     """
-    
+
     order = pyblish.api.CollectorOrder + 0.490
     label = "Farm Job Chain"
     targets = ["local"]
@@ -102,11 +102,11 @@ class EstablishFarmChain(pyblish.api.ContextPlugin):
         label: Display name for the plugin.
         targets: Plugin targets (only "local").
     """
-    
+
     order = pyblish.api.CollectorOrder + 0.491
     label = "Link Farm Jobs"
     targets = ["local"]
-    
+
     def process(self, context):
         """Process context and establish farm job dependencies.
 
@@ -136,16 +136,16 @@ class EstablishFarmChain(pyblish.api.ContextPlugin):
                 x.data.get("name")
             )
         )
-        
+
         # 3. Create a clean, sorted list for linking
         sorted_instances = [i for i in context if i in farm_instances]
-        
+
         self.log.info(f"--- Processing {len(sorted_instances)} sorted jobs ---")
 
         # 4. Index-based loop (Guaranteed to work)
         for i in range(len(sorted_instances)):
             current = sorted_instances[i]
-            
+
             # If index is 0, it is the start. It cannot depend on anything.
             if i == 0:
                 self.log.info(f"  [START] '{current.data['name']}' (Order {current.data['chain_order']})")
@@ -153,15 +153,15 @@ class EstablishFarmChain(pyblish.api.ContextPlugin):
 
             # For any other index, look at the previous item (i-1)
             behavior = current.data.get("chain_behavior")
-            
+
             if behavior == "dependency":
                 previous = sorted_instances[i-1]
-                
+
                 # Store the link
                 deps = current.data.get("farm_instance_dependencies", [])
                 deps.append(previous)
                 current.data["farm_instance_dependencies"] = deps
-                
+
                 self.log.info(
                     f"  [LINK]  '{current.data['name']}' (Order {current.data['chain_order']}) "
                     f"-> Waiting for '{previous.data['name']}'"

@@ -247,7 +247,7 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         dialog.setWindowFlags(dialog.windowFlags() | QtCore.Qt.FramelessWindowHint)
 
         layout = QtWidgets.QVBoxLayout(dialog)
-        
+
         info_label = QtWidgets.QLabel("Select the versions you want to delete below:")
         layout.addWidget(info_label)
 
@@ -269,7 +269,7 @@ class DeleteOldVersions(load.ProductLoaderPlugin):
         button_box.rejected.connect(dialog.reject)
 
         dialog.setLayout(layout)
-        
+
         chosen_versions = []
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             # Collect all checked items
