@@ -1,3 +1,3 @@
 # -*- coding: utf-8 -*-
 """Package declaring AYON addon 'core' version."""
-__version__ = "1.9.14-bcn.2"
+__version__ = "1.9.14-bcn.3"

@@ -1030,23 +1030,30 @@ def _ffmpeg_h264_codec_args(stream_data, source_ffmpeg_cmd):
 
     # Use arguments from source if are available source arguments
     if source_ffmpeg_cmd:
+        # BCN: also keep encoder preset and GOP of the source encode.
+        #   Re-encoding burnins all-intra ('-g 1') at the source bitrate
+        #   made ftrack reviews visibly noisy. Colour tag args are not
+        #   copied - newer ffmpeg converts pixels instead of only tagging.
         copy_args = (
             "-crf",
             "-b:v", "-vb",
             "-minrate", "-minrate:",
             "-maxrate", "-maxrate:",
-            "-bufsize", "-bufsize:"
+            "-bufsize", "-bufsize:",
+            "-preset", "-preset:v",
+            "-tune", "-tune:v",
+            "-profile:v", "-level", "-level:v",
+            "-g", "-bf",
         )
         args = source_ffmpeg_cmd.split(" ")
         for idx, arg in enumerate(args):
-            if arg in copy_args:
+            if arg in copy_args and idx + 1 < len(args):
                 output.extend([arg, args[idx + 1]])
 
     pix_fmt = stream_data.get("pix_fmt")
     if pix_fmt:
         output.extend(["-pix_fmt", pix_fmt])
 
-    output.extend(["-g", "1"])
     return output
 
 
