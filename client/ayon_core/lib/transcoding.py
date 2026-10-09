@@ -1032,8 +1032,7 @@ def _ffmpeg_h264_codec_args(stream_data, source_ffmpeg_cmd):
     if source_ffmpeg_cmd:
         # BCN: also keep encoder preset and GOP of the source encode.
         #   Re-encoding burnins all-intra ('-g 1') at the source bitrate
-        #   made ftrack reviews visibly noisy. Colour tag args are not
-        #   copied - newer ffmpeg converts pixels instead of only tagging.
+        #   made ftrack reviews visibly noisy.
         copy_args = (
             "-crf",
             "-b:v", "-vb",
@@ -1045,10 +1044,28 @@ def _ffmpeg_h264_codec_args(stream_data, source_ffmpeg_cmd):
             "-profile:v", "-level", "-level:v",
             "-g", "-bf",
         )
+        # BCN: colour tags of the source encode are written as x264 VUI
+        #   params - passing '-colorspace' etc. as output options makes
+        #   newer ffmpeg convert pixels instead of only tagging them.
+        color_tag_args = {
+            "-color_primaries": "colorprim",
+            "-color_trc": "transfer",
+            "-colorspace": "colormatrix",
+        }
+        x264_params = []
         args = source_ffmpeg_cmd.split(" ")
         for idx, arg in enumerate(args):
-            if arg in copy_args and idx + 1 < len(args):
-                output.extend([arg, args[idx + 1]])
+            if idx + 1 >= len(args):
+                continue
+            value = args[idx + 1]
+            if arg in copy_args:
+                output.extend([arg, value])
+            elif arg in color_tag_args and value != "unknown":
+                x264_params.append(f"{color_tag_args[arg]}={value}")
+            elif arg == "-x264-params":
+                x264_params.append(value)
+        if x264_params:
+            output.extend(["-x264-params", ":".join(x264_params)])
 
     pix_fmt = stream_data.get("pix_fmt")
     if pix_fmt:
